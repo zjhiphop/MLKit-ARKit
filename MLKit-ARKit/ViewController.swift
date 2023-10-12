@@ -17,6 +17,8 @@
 import SceneKit
 import ARKit
 import Firebase
+import MLKitImageLabeling
+import MLKitVision
 
 class ViewController: UIViewController {
 
@@ -25,8 +27,6 @@ class ViewController: UIViewController {
   let bubbleDepth : Float = 0.01 // the 'depth' of 3D text
   var latestPrediction : String = "…" // a variable containing the latest ML Kit prediction
 
-  // ML Kit
-  private lazy var vision = Vision.vision()
   let dispatchQueueML = DispatchQueue(label: "dispatchqueueml", autoreleaseFrequency: .workItem) // A Serial Queue
   @IBOutlet weak var debugTextView: UITextView!
 
@@ -78,6 +78,23 @@ class ViewController: UIViewController {
     return true
   }
 
+  func imageOrientation(
+      deviceOrientation: UIDeviceOrientation,
+      cameraPosition: AVCaptureDevice.Position
+    ) -> UIImage.Orientation {
+      switch deviceOrientation {
+      case .portrait:
+        return cameraPosition == .front ? .leftMirrored : .right
+      case .landscapeLeft:
+        return cameraPosition == .front ? .downMirrored : .up
+      case .portraitUpsideDown:
+        return cameraPosition == .front ? .rightMirrored : .left
+      case .landscapeRight:
+        return cameraPosition == .front ? .upMirrored : .down
+      case .faceDown, .faceUp, .unknown:
+        return .up
+      }
+    }
   // MARK: - Interaction
 
   @objc func handleTap(gestureRecognize: UITapGestureRecognizer) {
@@ -108,12 +125,13 @@ class ViewController: UIViewController {
 
     // BUBBLE-TEXT
     let bubble = SCNText(string: text, extrusionDepth: CGFloat(bubbleDepth))
-    let visionImage = VisionImage.init(image: sceneView.snapshot())
-    vision.cloudImageLabeler().process(visionImage) { labels, error in
-        guard error == nil, let labels = labels, !labels.isEmpty else { return }
-        bubble.string = labels[0].text
-    }
-    
+    let visionImage = VisionImage(image: sceneView.snapshot())
+      // TODO: need refactor with https://firebase.google.com/docs/ml/ios/label-images?authuser=0
+//    Vision.vision().cloudImageLabeler().process(visionImage) { labels, error in
+//        guard error == nil, let labels = labels, !labels.isEmpty else { return }
+//        bubble.string = labels[0].text
+//    }
+
     var font = UIFont(name: "Futura", size: 0.15)
     font = font?.withTraits(traits: .traitBold)
     bubble.font = font
@@ -161,11 +179,12 @@ class ViewController: UIViewController {
 
   func updateMLKit() {
     let visionImage = VisionImage.init(image: sceneView.snapshot())
+  
     let group = DispatchGroup()
-    let options = VisionOnDeviceImageLabelerOptions()
+    let options = ImageLabelerOptions()
     options.confidenceThreshold = 0.7
     group.enter()
-    vision.onDeviceImageLabeler(options: options).process(visionImage) { features, error in
+    ImageLabeler.imageLabeler(options: options).process(visionImage) { features, error in
       defer { group.leave() }
       guard error == nil, let features = features, !features.isEmpty else {
         let errorString = error?.localizedDescription ?? "detectionNoResultsMessage"
